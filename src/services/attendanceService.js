@@ -9,33 +9,64 @@
 const API_URL = import.meta.env.VITE_API_URL;
 
 /**
- * Converts a File object to a Base64 data URL string.
+ * Mengkompresi gambar dan mengubahnya menjadi Base64.
+ * Ini sangat penting karena kamera HP menghasilkan file berukuran MB (jutaan karakter Base64).
+ * Google Sheets memiliki batas 50.000 karakter per cell, jadi gambar harus dikompres
+ * secara agresif agar string Base64-nya muat di dalam cell.
  *
- * @param {File} file - The image file to convert.
+ * @param {File} file - File gambar.
  * @returns {Promise<string>} Base64 data URL.
  */
-export function fileToBase64(file) {
+export function compressImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Gagal membaca file foto.'));
     reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        // Dimensi maksimal (diperkecil agar size sangat ringan)
+        const MAX_WIDTH = 500;
+        const MAX_HEIGHT = 500;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width = Math.round((width * MAX_HEIGHT) / height);
+            height = MAX_HEIGHT;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Kompresi kualitas JPEG ke 60% agar ukurannya di bawah 30-40KB
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+        resolve(dataUrl);
+      };
+      img.onerror = () => reject(new Error('Gagal memproses gambar.'));
+    };
+    reader.onerror = () => reject(new Error('Gagal membaca file foto.'));
   });
 }
 
 /**
  * Prepares the photo payload for the API request.
  *
- * Currently converts photo to Base64 string.
- * To switch to Google Drive upload in the future:
- *   1. Upload the file to Google Drive here.
- *   2. Return the Drive file URL/ID instead of Base64.
- *
  * @param {File} file - The image file.
- * @returns {Promise<string>} The photo payload (Base64 string or future Drive URL).
+ * @returns {Promise<string>} The photo payload (Base64 string).
  */
 export async function preparePhotoPayload(file) {
-  return fileToBase64(file);
+  return compressImage(file);
 }
 
 /**
